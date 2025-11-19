@@ -1,0 +1,4 @@
+# Requirements for Obsidian Vault → Open WebUI RAG Indexer
+# Install with: pip install -r requirements-indexer.txt
+
+requests>=2.31.0

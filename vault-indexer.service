@@ -1,0 +1,20 @@
+[Unit]
+Description=Obsidian Vault to Open WebUI RAG Indexer
+After=network.target
+
+[Service]
+Type=oneshot
+User=your-username
+WorkingDirectory=/home/your-username/open-webui
+ExecStart=/usr/bin/python3 /home/your-username/open-webui/vault_indexer.py --config /home/your-username/open-webui/vault_indexer.config.json
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+PrivateTmp=yes
+NoNewPrivileges=true
+ReadOnlyPaths=/usr /bin /sbin /lib /lib64
+ReadWritePaths=/home/your-username/Obsidian /home/your-username/open-webui
+
+[Install]
+WantedBy=multi-user.target

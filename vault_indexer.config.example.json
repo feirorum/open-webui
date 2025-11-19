@@ -1,0 +1,28 @@
+{
+  "_comment": "Example configuration for Obsidian Vault → Open WebUI RAG Indexer",
+  "_comment_2": "Copy this file to vault_indexer.config.json and customize for your setup",
+
+  "vault_root": "/home/user/Obsidian/MyVault",
+  "docs_root": "/home/user/open-webui/backend/data/docs/vault",
+  "state_file": "/home/user/Obsidian/MyVault/.vault-indexer/state.json",
+
+  "include_patterns": [
+    "*.md",
+    "**/*.md"
+  ],
+
+  "exclude_patterns": [
+    ".obsidian/**",
+    "Templates/**",
+    ".trash/**",
+    "Archive/**"
+  ],
+
+  "mode": "incremental",
+
+  "_comment_api": "API mode configuration (alternative to direct file copy)",
+  "use_api": false,
+  "api_url": "http://localhost:8080",
+  "api_token": "sk-your-api-token-here",
+  "knowledge_base_id": "obsidian-vault"
+}

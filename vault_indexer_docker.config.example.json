@@ -1,0 +1,29 @@
+{
+  "_comment": "Example configuration for Obsidian Vault → Open WebUI RAG Indexer (Docker)",
+  "_comment_2": "This config assumes vault is mounted at /vault inside the container",
+
+  "vault_root": "/vault",
+  "docs_root": "/app/backend/data/docs/vault",
+  "state_file": "/vault/.vault-indexer/state.json",
+
+  "include_patterns": [
+    "*.md",
+    "**/*.md"
+  ],
+
+  "exclude_patterns": [
+    ".obsidian/**",
+    "Templates/**",
+    ".trash/**",
+    "Archive/**"
+  ],
+
+  "mode": "incremental",
+
+  "_comment_api": "API mode example for Docker",
+  "_comment_api_2": "Use this when running indexer outside the container",
+  "use_api": false,
+  "api_url": "http://localhost:3000",
+  "api_token": "your-token-from-open-webui",
+  "knowledge_base_id": "obsidian-vault"
+}

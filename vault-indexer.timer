@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Obsidian Vault Indexer every hour
+Requires=vault-indexer.service
+
+[Timer]
+# Run every hour
+OnCalendar=hourly
+# Run 5 minutes after boot if we missed a run
+OnBootSec=5min
+# If the system was off when the timer should have run, run it on next boot
+Persistent=true
+
+[Install]
+WantedBy=timers.target
