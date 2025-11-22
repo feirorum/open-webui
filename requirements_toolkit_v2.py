@@ -178,9 +178,17 @@ class HierarchyManager:
 class ConflictDetector:
     """Detects various types of conflicts between requirements."""
 
-    def __init__(self):
+    def __init__(self, config: Optional[Dict] = None):
         self.vague_terms = set(VAGUE_TERMS)
         self.contradiction_pairs = CONTRADICTION_PAIRS
+        # Configurable rules from Valves
+        self.config = config or {}
+        self.security_areas = set(self.config.get('security_areas', 'security,authentication,authorization,encryption,auth,password,credential').split(','))
+        self.security_min_priority = self.config.get('security_min_priority', 'high')
+        self.api_areas = set(self.config.get('api_areas', 'api,endpoint,rest,graphql').split(','))
+        self.require_rate_limits_for_api = self.config.get('require_rate_limits_for_api', True)
+        self.gdpr_keywords = [k.strip() for k in self.config.get('gdpr_keywords', 'gdpr,privacy,personal data').split(',')]
+        self.require_legal_for_gdpr = self.config.get('require_legal_for_gdpr', True)
 
     def detect_all_conflicts(self, req: Dict, all_requirements: List[Dict]) -> List[Dict]:
         """Run all conflict detection algorithms."""
@@ -201,6 +209,10 @@ class ConflictDetector:
         # Constraint violations
         constraint_violations = self.detect_constraint_violations(req)
         conflicts.extend(constraint_violations)
+
+        # Stakeholder conflicts
+        stakeholder_conflicts = self.detect_stakeholder_conflicts(req)
+        conflicts.extend(stakeholder_conflicts)
 
         return conflicts
 
@@ -234,17 +246,20 @@ class ConflictDetector:
 
     def _has_contradiction_in_context(self, text1: str, text2: str, word1: str, word2: str) -> bool:
         """Check if contradiction words appear in similar context."""
-        # Simple check: both texts discuss similar topics and have opposite stances
-        if word1 in text1 and word2 in text2:
+        # Check both directions: word1 in text1 + word2 in text2, or reversed
+        has_contradiction = (word1 in text1 and word2 in text2) or (word2 in text1 and word1 in text2)
+
+        if has_contradiction:
             # Check for overlapping context words
-            words1 = set(re.findall(r'\b\w+\b', text1))
-            words2 = set(re.findall(r'\b\w+\b', text2))
+            words1 = set(re.findall(r'\b\w{3,}\b', text1))  # At least 3 chars
+            words2 = set(re.findall(r'\b\w{3,}\b', text2))
             common_words = words1 & words2
             # Filter out common stop words
-            stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'to', 'of', 'and', 'or', 'in', 'on', 'for', 'with'}
+            stop_words = {'the', 'and', 'are', 'was', 'were', 'been', 'for', 'with', 'that', 'this', 'from', 'have', 'has'}
             meaningful_common = common_words - stop_words - {word1, word2}
-            # If they share meaningful words, likely discussing same topic
-            if len(meaningful_common) >= 3:
+            # If they share at least 2 meaningful words, likely discussing same topic
+            # This catches "email verification is mandatory" vs "email verification is optional"
+            if len(meaningful_common) >= 2:
                 return True
         return False
 
@@ -367,32 +382,68 @@ class ConflictDetector:
         return False
 
     def detect_constraint_violations(self, req: Dict) -> List[Dict]:
-        """Check requirement against business rules."""
+        """Check requirement against configurable business rules."""
         violations = []
 
-        # Rule: Security requirements must be high/critical priority
         area = req.get('area', '').lower()
         priority = req.get('priority', 'medium').lower()
         title = req.get('title', '').lower()
+        details = req.get('details', '').lower()
+        content = f"{title} {area} {details}"
 
-        security_keywords = ['security', 'authentication', 'authorization', 'encryption', 'auth', 'password', 'credential']
-        is_security = any(kw in area or kw in title for kw in security_keywords)
+        # Rule 1: Security requirements must meet minimum priority
+        is_security = any(kw in area or kw in title for kw in self.security_areas)
+        min_priority_order = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
+        current_priority_level = min_priority_order.get(priority, 2)
+        required_priority_level = min_priority_order.get(self.security_min_priority, 3)
 
-        if is_security and priority not in ['high', 'critical']:
+        if is_security and current_priority_level < required_priority_level:
             violations.append({
                 'type': 'constraint_violation',
                 'severity': 'medium',
                 'req_id': req.get('id'),
-                'rule': 'Security requirements should be high/critical priority',
+                'rule': f'Security requirements should be {self.security_min_priority}+ priority',
                 'details': f"Security requirement has priority '{priority}'",
-                'suggestion': "Raise priority to 'high' or 'critical'"
+                'suggestion': f"Raise priority to '{self.security_min_priority}' or higher"
             })
 
-        # Rule: Implemented requirements should have examples/tests
+        # Rule 2: API requirements should document rate limits
+        if self.require_rate_limits_for_api:
+            is_api = any(kw in area or kw in title for kw in self.api_areas)
+            if is_api:
+                has_rate_limit = any(term in content for term in ['rate limit', 'throttle', 'requests per', 'req/s', 'rps'])
+                if not has_rate_limit:
+                    violations.append({
+                        'type': 'constraint_violation',
+                        'severity': 'medium',
+                        'req_id': req.get('id'),
+                        'rule': 'API requirements should specify rate limits',
+                        'details': 'No rate limiting mentioned',
+                        'suggestion': 'Add rate limiting requirements (e.g., 100 requests/second)'
+                    })
+
+        # Rule 3: GDPR requirements need legal approval
+        if self.require_legal_for_gdpr:
+            is_gdpr = any(kw in content for kw in self.gdpr_keywords)
+            if is_gdpr:
+                approvers = req.get('stakeholders', {}).get('approvers', [])
+                legal_approved = any('legal' in str(a.get('name', '')).lower() for a in approvers if isinstance(a, dict))
+                if not legal_approved:
+                    violations.append({
+                        'type': 'constraint_violation',
+                        'severity': 'high',
+                        'req_id': req.get('id'),
+                        'rule': 'GDPR/privacy requirements need legal approval',
+                        'details': 'No legal team approval found',
+                        'suggestion': 'Get legal team sign-off before implementation'
+                    })
+
+        # Rule 4: Implemented requirements should have examples/tests
         status = req.get('status', '').lower()
         examples = req.get('examples', [])
+        acceptance_criteria = req.get('acceptance_criteria', [])
 
-        if status in ['implemented', 'done', 'completed'] and not examples:
+        if status in ['implemented', 'done', 'completed'] and not examples and not acceptance_criteria:
             violations.append({
                 'type': 'constraint_violation',
                 'severity': 'low',
@@ -402,7 +453,59 @@ class ConflictDetector:
                 'suggestion': 'Add Gherkin scenarios for test coverage'
             })
 
+        # Rule 5: User stories should have acceptance criteria
+        req_type = req.get('type', '').lower()
+        if req_type in ['user-story', 'story'] and not acceptance_criteria and not examples:
+            if len(details) < 50:  # Short details = likely missing criteria
+                violations.append({
+                    'type': 'constraint_violation',
+                    'severity': 'medium',
+                    'req_id': req.get('id'),
+                    'rule': 'User stories should have acceptance criteria',
+                    'details': 'No acceptance criteria or examples provided',
+                    'suggestion': 'Add acceptance criteria or Gherkin scenarios'
+                })
+
         return violations
+
+    def detect_stakeholder_conflicts(self, req: Dict) -> List[Dict]:
+        """Detect conflicts between stakeholders on the same requirement."""
+        conflicts = []
+
+        # Check for priority disagreement in stakeholder ratings
+        stakeholder_ratings = req.get('stakeholder_ratings', [])
+        if len(stakeholder_ratings) >= 2:
+            priorities = [s.get('priority', '').lower() for s in stakeholder_ratings if s.get('priority')]
+            unique_priorities = set(priorities)
+
+            if len(unique_priorities) > 1:
+                conflicts.append({
+                    'type': 'priority_disagreement',
+                    'severity': 'medium',
+                    'req_id': req.get('id'),
+                    'details': f"Stakeholders disagree on priority: {', '.join(unique_priorities)}",
+                    'stakeholders': [s.get('name', 'Unknown') for s in stakeholder_ratings],
+                    'suggestion': 'Hold a prioritization meeting to align stakeholders'
+                })
+
+        # Check for approval conflicts (some approved, some rejected)
+        approvers = req.get('stakeholders', {}).get('approvers', [])
+        if isinstance(approvers, list) and len(approvers) >= 2:
+            approved = [a for a in approvers if a.get('status') == 'approved']
+            rejected = [a for a in approvers if a.get('status') == 'rejected']
+
+            if approved and rejected:
+                conflicts.append({
+                    'type': 'approval_conflict',
+                    'severity': 'high',
+                    'req_id': req.get('id'),
+                    'details': f"{len(approved)} approved, {len(rejected)} rejected",
+                    'approved_by': [a.get('name', 'Unknown') for a in approved],
+                    'rejected_by': [a.get('name', 'Unknown') for a in rejected],
+                    'suggestion': 'Resolve stakeholder conflicts before proceeding'
+                })
+
+        return conflicts
 
     def _get_text(self, req: Dict) -> str:
         """Get searchable text from requirement."""
@@ -484,25 +587,50 @@ class QualityScorer:
         """Score if requirement has measurable criteria."""
         score = 0.0
         text = self._get_text(req)
+        text_lower = text.lower()
 
-        # Numeric criteria
-        if re.search(r'[<>=]+\s*\d+', text):
+        # Enhanced numeric criteria patterns
+        numeric_patterns = [
+            r'[<>=]+\s*\d+',                    # <2, >=99, =100
+            r'\d+\s*%|\d+\s*percent',           # 99%, 99 percent
+            r'within\s+\d+\s*(second|minute|hour|day|ms)',  # within 2 seconds
+            r'at\s+least\s+\d+',                # at least 5
+            r'no\s+more\s+than\s+\d+',          # no more than 10
+            r'up\s+to\s+\d+',                   # up to 100
+            r'between\s+\d+\s+and\s+\d+',       # between 5 and 10
+            r'\d+\s*(ms|millisecond|second|minute|hour|day|week|mb|gb|kb)',  # 500ms, 2GB
+            r'\d+\s*(user|request|transaction|record)s?\s*(per|/)\s*(second|minute|hour|day)',  # 1000 requests/second
+        ]
+
+        numeric_matches = sum(1 for p in numeric_patterns if re.search(p, text_lower))
+        if numeric_matches >= 3:
+            score += 0.5
+        elif numeric_matches >= 2:
             score += 0.4
-
-        # Percentage or metrics
-        if re.search(r'\d+\s*%|\d+\s*percent', text.lower()):
-            score += 0.2
+        elif numeric_matches >= 1:
+            score += 0.3
 
         # Examples/scenarios
         examples = req.get('examples', [])
         if len(examples) >= 2:
-            score += 0.3
+            score += 0.25
         elif len(examples) >= 1:
-            score += 0.2
+            score += 0.15
 
-        # Acceptance criteria indicators
-        details = req.get('details', '').lower()
-        if any(term in details for term in ['must', 'shall', 'should', 'acceptance', 'criteria']):
+        # Acceptance criteria
+        acceptance_criteria = req.get('acceptance_criteria', [])
+        if len(acceptance_criteria) >= 3:
+            score += 0.25
+        elif len(acceptance_criteria) >= 1:
+            score += 0.15
+
+        # Gherkin patterns in text
+        if 'given' in text_lower and 'when' in text_lower and 'then' in text_lower:
+            score += 0.15
+
+        # Measurable keywords
+        measurable_terms = ['verify', 'validate', 'test', 'measure', 'confirm', 'ensure', 'check']
+        if any(term in text_lower for term in measurable_terms):
             score += 0.1
 
         return min(1.0, score)
@@ -841,10 +969,50 @@ class Tools:
         enable_conflict_detection: bool = Field(default=True, description="Enable conflict detection")
         min_quality_score: float = Field(default=0.5, description="Minimum quality score to pass validation")
 
+        # Quality thresholds (Section 4)
+        min_smart_score: float = Field(default=0.6, description="Minimum SMART score for approval")
+        min_invest_score: float = Field(default=0.7, description="Minimum INVEST score for sprint-ready")
+        block_on_critical_conflicts: bool = Field(default=True, description="Block storing on critical conflicts")
+
+        # Configurable business rules (Section 2)
+        security_areas: str = Field(
+            default="security,authentication,authorization,encryption,auth,password,credential",
+            description="Comma-separated areas requiring high priority"
+        )
+        security_min_priority: str = Field(
+            default="high",
+            description="Minimum priority for security requirements"
+        )
+        api_areas: str = Field(
+            default="api,endpoint,rest,graphql",
+            description="Comma-separated API-related areas"
+        )
+        require_rate_limits_for_api: bool = Field(default=True, description="Require rate limits in API requirements")
+        gdpr_keywords: str = Field(
+            default="gdpr,privacy,personal data,data protection,right to be forgotten,data export,consent",
+            description="Comma-separated GDPR-related keywords"
+        )
+        require_legal_for_gdpr: bool = Field(default=True, description="Require legal approval for GDPR requirements")
+
+        # Template directory
+        templates_path: str = Field(
+            default="templates",
+            description="Subdirectory for requirement templates"
+        )
+
     def __init__(self):
         self.valves = self.Valves()
         self._ensure_requirements_structure()
-        self.conflict_detector = ConflictDetector()
+        # Pass configurable rules to ConflictDetector
+        conflict_config = {
+            'security_areas': self.valves.security_areas,
+            'security_min_priority': self.valves.security_min_priority,
+            'api_areas': self.valves.api_areas,
+            'require_rate_limits_for_api': self.valves.require_rate_limits_for_api,
+            'gdpr_keywords': self.valves.gdpr_keywords,
+            'require_legal_for_gdpr': self.valves.require_legal_for_gdpr,
+        }
+        self.conflict_detector = ConflictDetector(conflict_config)
         self.quality_scorer = QualityScorer()
         self.completeness_validator = CompletenessValidator()
 
@@ -2068,5 +2236,192 @@ class Tools:
                     'roadmap': dict(grouped)
                 }, indent=2)
 
+        except Exception as e:
+            return json.dumps({'status': 'error', 'error': str(e)}, indent=2)
+
+    # =========================================================================
+    # IMPACT ANALYSIS (Section 3)
+    # =========================================================================
+
+    def requirements_impact_analysis(
+        self,
+        req_id: str = Field(..., description="Requirement ID to analyze"),
+        analysis_depth: str = Field(default="full", description="Depth: quick|full"),
+    ) -> str:
+        """Analyze impact of changing or removing a requirement."""
+        try:
+            requirements = self._get_all_requirements()
+            req_map = {r['id']: r for r in requirements}
+
+            target = req_map.get(req_id)
+            if not target:
+                return json.dumps({'status': 'not_found', 'error': f"Requirement {req_id} not found"}, indent=2)
+
+            impact = {'direct_dependents': [], 'transitive_dependents': [], 'children': [], 'total_effort_at_risk': 0}
+
+            for req in requirements:
+                if req_id in req.get('dependencies', {}).get('blocked_by', []):
+                    impact['direct_dependents'].append({'id': req['id'], 'title': req.get('title', ''), 'effort': req.get('planning', {}).get('estimated_effort', 0)})
+
+            if analysis_depth == "full":
+                direct_ids = {d['id'] for d in impact['direct_dependents']}
+                for req in requirements:
+                    if req['id'] not in direct_ids and req['id'] != req_id:
+                        if any(dep in direct_ids for dep in req.get('dependencies', {}).get('blocked_by', [])):
+                            impact['transitive_dependents'].append({'id': req['id'], 'title': req.get('title', '')})
+
+            for cid in target.get('hierarchy', {}).get('children_ids', []):
+                if cid in req_map:
+                    impact['children'].append({'id': cid, 'title': req_map[cid].get('title', '')})
+
+            for dep in impact['direct_dependents']:
+                impact['total_effort_at_risk'] += dep.get('effort', 0) or 0
+
+            md = [f"# Impact Analysis: {req_id}\n\n**{target.get('title', '')}**\n\n"]
+            md.append(f"- Direct dependents: {len(impact['direct_dependents'])}\n")
+            md.append(f"- Transitive: {len(impact['transitive_dependents'])}\n")
+            md.append(f"- Children: {len(impact['children'])}\n")
+            md.append(f"- Effort at risk: {impact['total_effort_at_risk']} pts\n")
+            if impact['direct_dependents']:
+                md.append("\n## Blocked\n" + "\n".join(f"- {d['id']}: {d['title']}" for d in impact['direct_dependents']))
+            return ''.join(md)
+        except Exception as e:
+            return json.dumps({'status': 'error', 'error': str(e)}, indent=2)
+
+    # =========================================================================
+    # EXPORT (Section 3)
+    # =========================================================================
+
+    def requirements_export(
+        self,
+        format: str = Field(default="csv", description="Format: csv|json|jira"),
+        filter_area: Optional[str] = Field(None, description="Filter by area"),
+        filter_status: Optional[str] = Field(None, description="Filter by status"),
+    ) -> str:
+        """Export requirements for external tools."""
+        try:
+            requirements = self._get_all_requirements()
+            if filter_area:
+                requirements = [r for r in requirements if r.get('area', '').lower() == filter_area.lower()]
+            if filter_status:
+                requirements = [r for r in requirements if r.get('status', '').lower() == filter_status.lower()]
+
+            if format == "csv":
+                lines = ["id,title,type,status,priority,area"]
+                for r in requirements:
+                    lines.append(f'"{r.get("id","")}","{r.get("title","").replace(chr(34),chr(39))}","{r.get("type","")}","{r.get("status","")}","{r.get("priority","")}","{r.get("area","")}"')
+                return '\n'.join(lines)
+            elif format == "jira":
+                lines = ["Summary,Issue Type,Priority,Labels"]
+                for r in requirements:
+                    lines.append(f'"{r.get("title","")}","Story","{r.get("priority","Medium").title()}","{r.get("area","")}"')
+                return '\n'.join(lines)
+            return json.dumps({'total': len(requirements), 'requirements': requirements}, indent=2)
+        except Exception as e:
+            return json.dumps({'status': 'error', 'error': str(e)}, indent=2)
+
+    # =========================================================================
+    # TEMPLATES (Section 1)
+    # =========================================================================
+
+    def requirements_from_template(
+        self,
+        template_name: str = Field(..., description="Template: user-story|api|security|gdpr|nfr"),
+        title: str = Field(..., description="Requirement title"),
+        area: str = Field(default="general", description="Functional area"),
+    ) -> str:
+        """Create requirement from predefined template."""
+        templates = {
+            "user-story": {"type": "user-story", "priority": "medium", "summary": "As a [role], I want [goal] so that [benefit].", "details": "## Acceptance Criteria\n\n- [ ] Criterion 1\n- [ ] Criterion 2\n"},
+            "api": {"type": "feature", "priority": "medium", "summary": "API endpoint", "details": "## Endpoint\n\n- Method:\n- Path: /api/v1/\n- Rate: 100 req/min\n"},
+            "security": {"type": "user-story", "priority": "high", "summary": "Security requirement", "details": "## Controls\n\n- [ ] Auth\n- [ ] Validation\n"},
+            "gdpr": {"type": "constraint", "priority": "high", "summary": "GDPR compliance", "details": "## Data\n\n- Type:\n- Basis:\n"},
+            "nfr": {"type": "nfr", "priority": "medium", "summary": "NFR", "details": "## Metric\n\n- Target:\n"},
+        }
+        if template_name not in templates:
+            return json.dumps({'error': f"Unknown template. Use: {list(templates.keys())}"}, indent=2)
+        t = templates[template_name]
+        return self.requirements_store(title=title, summary=t['summary'], details=t['details'], req_type=t['type'], priority=t['priority'], area=area)
+
+    # =========================================================================
+    # RISK & CHANGE TRACKING (Section 6)
+    # =========================================================================
+
+    def requirements_add_risk(
+        self,
+        req_id: str = Field(..., description="Requirement ID"),
+        risk_type: str = Field(..., description="Type: technical|schedule|resource|scope"),
+        probability: str = Field(default="medium", description="low|medium|high"),
+        impact: str = Field(default="medium", description="low|medium|high"),
+        description: str = Field(..., description="Risk description"),
+        mitigation: str = Field(default="", description="Mitigation strategy"),
+    ) -> str:
+        """Add risk to requirement."""
+        try:
+            base_path = self._get_base_path()
+            for subfolder in ['backlog', 'decided', 'implemented', 'deprecated']:
+                for f in (base_path / subfolder).glob(f"{req_id}-*.md"):
+                    parsed = self._parse_requirement_file(f)
+                    if parsed and parsed['frontmatter'].get('id') == req_id:
+                        req, body = parsed['frontmatter'], parsed['body']
+                        if 'risks' not in req: req['risks'] = []
+                        risk = {'risk_id': f"RISK-{len(req['risks'])+1:03d}", 'type': risk_type, 'probability': probability, 'impact': impact, 'description': description, 'mitigation': mitigation, 'score': {'low':1,'medium':2,'high':3}.get(probability,2)*{'low':1,'medium':2,'high':3}.get(impact,2), 'created_at': datetime.utcnow().isoformat()+"Z"}
+                        req['risks'].append(risk)
+                        self._save_requirement_file(req, body)
+                        return json.dumps({'status': 'success', 'risk': risk}, indent=2)
+            return json.dumps({'status': 'not_found'}, indent=2)
+        except Exception as e:
+            return json.dumps({'status': 'error', 'error': str(e)}, indent=2)
+
+    def requirements_add_change(
+        self,
+        req_id: str = Field(..., description="Requirement ID"),
+        change_type: str = Field(..., description="Type: scope_increase|scope_decrease|priority_change|clarification"),
+        reason: str = Field(..., description="Reason for change"),
+        changed_by: str = Field(default="", description="Person making change"),
+    ) -> str:
+        """Record change in requirement history."""
+        try:
+            base_path = self._get_base_path()
+            for subfolder in ['backlog', 'decided', 'implemented', 'deprecated']:
+                for f in (base_path / subfolder).glob(f"{req_id}-*.md"):
+                    parsed = self._parse_requirement_file(f)
+                    if parsed and parsed['frontmatter'].get('id') == req_id:
+                        req, body = parsed['frontmatter'], parsed['body']
+                        if 'change_history' not in req: req['change_history'] = []
+                        change = {'change_id': f"CHG-{len(req['change_history'])+1:03d}", 'date': datetime.utcnow().isoformat()+"Z", 'change_type': change_type, 'reason': reason, 'changed_by': changed_by}
+                        req['change_history'].append(change)
+                        req['updated_at'] = datetime.utcnow().isoformat() + "Z"
+                        self._save_requirement_file(req, body)
+                        return json.dumps({'status': 'success', 'change': change}, indent=2)
+            return json.dumps({'status': 'not_found'}, indent=2)
+        except Exception as e:
+            return json.dumps({'status': 'error', 'error': str(e)}, indent=2)
+
+    def requirements_stakeholder_rating(
+        self,
+        req_id: str = Field(..., description="Requirement ID"),
+        stakeholder_name: str = Field(..., description="Stakeholder name"),
+        priority: str = Field(..., description="Rating: critical|high|medium|low"),
+        comment: str = Field(default="", description="Optional comment"),
+    ) -> str:
+        """Record stakeholder's priority rating."""
+        try:
+            base_path = self._get_base_path()
+            for subfolder in ['backlog', 'decided', 'implemented', 'deprecated']:
+                for f in (base_path / subfolder).glob(f"{req_id}-*.md"):
+                    parsed = self._parse_requirement_file(f)
+                    if parsed and parsed['frontmatter'].get('id') == req_id:
+                        req, body = parsed['frontmatter'], parsed['body']
+                        if 'stakeholder_ratings' not in req: req['stakeholder_ratings'] = []
+                        existing = next((r for r in req['stakeholder_ratings'] if r.get('name') == stakeholder_name), None)
+                        if existing:
+                            existing.update({'priority': priority, 'comment': comment, 'updated_at': datetime.utcnow().isoformat()+"Z"})
+                        else:
+                            req['stakeholder_ratings'].append({'name': stakeholder_name, 'priority': priority, 'comment': comment, 'rated_at': datetime.utcnow().isoformat()+"Z"})
+                        self._save_requirement_file(req, body)
+                        has_conflict = len(set(r.get('priority') for r in req['stakeholder_ratings'])) > 1
+                        return json.dumps({'status': 'success', 'priority_conflict': has_conflict}, indent=2)
+            return json.dumps({'status': 'not_found'}, indent=2)
         except Exception as e:
             return json.dumps({'status': 'error', 'error': str(e)}, indent=2)

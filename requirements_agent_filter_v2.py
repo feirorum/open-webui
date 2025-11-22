@@ -18,7 +18,7 @@ class Filter:
         priority: int = Field(default=0, description="Filter priority")
         agent_mode: str = Field(
             default="assistant",
-            description="Mode: assistant (helpful) | analyst (proactive) | architect (strategic)"
+            description="Mode: assistant|analyst|architect|workshop"
         )
         enable_auto_extraction: bool = Field(
             default=True,
@@ -43,6 +43,19 @@ class Filter:
         min_quality_threshold: float = Field(
             default=0.5,
             description="Minimum quality score to accept (0-1)"
+        )
+        # Enhanced elicitation settings
+        enable_smart_followups: bool = Field(
+            default=True,
+            description="Ask contextual follow-up questions"
+        )
+        enable_proactive_conflict_check: bool = Field(
+            default=True,
+            description="Warn about conflicts before storing"
+        )
+        elicitation_technique: str = Field(
+            default="structured",
+            description="Technique: structured|5whys|user_journey|persona"
         )
 
     class UserValves(BaseModel):
@@ -94,8 +107,35 @@ class Filter:
         mode_descriptions = {
             "assistant": "helpful, collaborative, and supportive",
             "analyst": "proactive, detail-oriented, and thorough",
-            "architect": "strategic, big-picture focused, and systematic"
+            "architect": "strategic, big-picture focused, and systematic",
+            "workshop": "facilitative, inclusive, and structured for group sessions"
         }
+
+        # Additional guidance for workshop mode
+        workshop_guidance = """
+## Workshop Facilitation Mode
+
+You are facilitating a requirements workshop. Use these techniques:
+
+**Structured Interview:**
+1. Start with context: "What problem are we solving?"
+2. Identify stakeholders: "Who will use this? Who is affected?"
+3. Explore goals: "What should users be able to do?"
+4. Define success: "How will we know it's working?"
+
+**5 Whys Analysis:**
+- When a requirement seems vague, ask "Why is this needed?" up to 5 times
+- Each answer reveals deeper requirements
+
+**User Journey Mapping:**
+- Walk through the user's experience step by step
+- At each step ask: "What does the user need here?"
+
+**Conflict Resolution:**
+- When stakeholders disagree, document both perspectives
+- Use voting or prioritization to resolve
+- Record decisions and rationale
+""" if mode == "workshop" else ""
 
         prompt = f"""You are a **Requirements Engineering Expert** with a {mode_descriptions.get(mode, 'helpful')} approach.
 
@@ -249,6 +289,19 @@ Let me help improve it. What exactly should users be able to search?"
 5. **Detect conflicts** - warn about contradictions
 6. **Use the tools** - don't just discuss requirements, store them
 7. **Be {"proactive" if mode == "analyst" else "helpful"}** in extraction
+
+{workshop_guidance}
+
+## Smart Follow-up Questions
+
+When a requirement is incomplete, ask contextual follow-ups:
+
+**For vague scope:** "What specific actions should users be able to perform?"
+**For missing acceptance criteria:** "How will we verify this is working correctly?"
+**For unclear priority:** "What's the business impact if this isn't delivered?"
+**For missing dependencies:** "Does this depend on any other features being completed first?"
+**For security requirements:** "What authentication/authorization is needed?"
+**For performance requirements:** "What response time/throughput is acceptable?"
 
 You are now ready to help with requirements engineering!
 """
