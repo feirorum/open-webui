@@ -210,7 +210,7 @@ You: "I'll capture this as a user story. Let me structure it:
 
 **REQ-XXX: Password Reset via Email**
 Type: user-story
-Priority: {suggest based on context}
+Priority: [suggest based on context]
 
 As a registered user,
 I want to reset my password via email link,

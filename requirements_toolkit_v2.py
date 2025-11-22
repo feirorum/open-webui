@@ -545,9 +545,9 @@ class QualityScorer:
         if req.get('business_value') or req.get('planning', {}).get('business_value'):
             score += 0.15
 
-        # Summary includes value statement
-        summary = req.get('summary', '').lower()
-        if 'so that' in summary or 'in order to' in summary or 'to enable' in summary:
+        # Summary or description includes value statement
+        text = (req.get('summary', '') + ' ' + req.get('description', '')).lower()
+        if 'so that' in text or 'in order to' in text or 'to enable' in text:
             score += 0.1
 
         return min(1.0, score)
@@ -604,12 +604,13 @@ class QualityScorer:
     def _score_valuable(self, req: Dict) -> float:
         """Score if story delivers clear value."""
         score = 0.0
-        summary = req.get('summary', '').lower()
+        # Check both summary and description fields
+        text = (req.get('summary', '') + ' ' + req.get('description', '')).lower()
 
-        # Has "so that" clause
-        if 'so that' in summary:
+        # Has "so that" clause (value statement)
+        if 'so that' in text:
             score += 0.4
-        elif 'in order to' in summary or 'to be able' in summary:
+        elif 'in order to' in text or 'to be able' in text or 'to enable' in text:
             score += 0.3
 
         # Has business value score
@@ -656,21 +657,30 @@ class QualityScorer:
         """Score if story has testable acceptance criteria."""
         score = 0.0
 
+        # Check examples (Gherkin scenarios)
         examples = req.get('examples', [])
         if len(examples) >= 3:
-            score += 0.6
+            score += 0.5
         elif len(examples) >= 1:
-            score += 0.4
+            score += 0.3
+
+        # Check acceptance criteria list
+        acceptance_criteria = req.get('acceptance_criteria', [])
+        if len(acceptance_criteria) >= 3:
+            score += 0.5
+        elif len(acceptance_criteria) >= 1:
+            score += 0.3
 
         details_length = len(req.get('details', ''))
         if details_length > 200:
-            score += 0.3
-        elif details_length > 100:
             score += 0.2
+        elif details_length > 100:
+            score += 0.1
 
+        # Check for Gherkin patterns in details
         details = req.get('details', '').lower()
         if 'given' in details and 'when' in details and 'then' in details:
-            score += 0.1
+            score += 0.2
 
         return min(1.0, score)
 
