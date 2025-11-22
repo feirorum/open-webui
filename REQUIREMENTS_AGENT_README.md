@@ -39,11 +39,24 @@ A comprehensive RAG-powered requirements engineering system built as an Open Web
 
 ### 🛠️ Powerful Tools
 
+**v1 Tools** (Basic):
 - **requirements_store**: Create/update requirements with full metadata
 - **requirements_index**: Fast indexing of all requirements
 - **requirements_overview**: Generate filtered summaries and tables
 - **requirements_get**: Retrieve specific requirements by ID
 - **requirements_search**: Keyword search across all requirements
+
+**v2 Tools** (Enterprise - see `requirements_toolkit_v2.py`):
+- All v1 tools, plus:
+- **requirements_hierarchy**: View requirement tree (Epic → Feature → Story → Task)
+- **requirements_move**: Move requirements in hierarchy
+- **requirements_validate**: Check for conflicts and quality issues
+- **requirements_conflicts**: Find conflicting requirements
+- **requirements_quality_report**: SMART/INVEST quality assessment
+- **requirements_approve**: Record approval decisions with stakeholders
+- **requirements_assign**: Assign stakeholders to requirements
+- **requirements_prioritize**: MoSCoW, WSJF, Value/Effort prioritization
+- **requirements_roadmap**: Generate roadmap views
 
 ---
 
@@ -59,22 +72,30 @@ A comprehensive RAG-powered requirements engineering system built as an Open Web
 
 ### 1. Install (5 minutes)
 
-```bash
-# Clone or copy these files to your Open WebUI directory:
-requirements_toolkit.py
-requirements_agent_filter.py
-```
+**Choose your version:**
 
-**Via Open WebUI UI**:
+| Version | Files | Features |
+|---------|-------|----------|
+| **v1** (Basic) | `requirements_toolkit.py`, `requirements_agent_filter.py` | Store, search, basic workflows |
+| **v2** (Enterprise) | `requirements_toolkit_v2.py`, `requirements_agent_filter_v2.py` | Hierarchy, conflict detection, quality scoring, approvals |
 
-1. **Workspace → Tools** → Create New Tool → Paste `requirements_toolkit.py`
-2. **Admin → Functions** → Create New Function → Filter → Paste `requirements_agent_filter.py`
+**Via Open WebUI UI** (recommended for v2):
+
+1. **Workspace → Tools** → Create New Tool → Paste `requirements_toolkit_v2.py`
+2. **Admin → Functions** → Create New Function → Filter → Paste `requirements_agent_filter_v2.py`
 3. **Start a chat** → Enable "Requirements Management Toolkit"
 
 **Dependencies**:
 ```bash
 pip install pyyaml python-slugify
 ```
+
+**v2 Features at a Glance:**
+- 🏗️ **Hierarchy**: Epic → Feature → Story → Task (with rollup metrics)
+- ⚠️ **Conflict Detection**: Semantic contradictions, circular dependencies
+- ⭐ **Quality Scoring**: SMART/INVEST frameworks with improvement suggestions
+- ✅ **Workflows**: Multi-stage approval with stakeholder tracking
+- 📊 **14 tools** (vs 5 in v1)
 
 ### 2. First Requirement (1 minute)
 
@@ -250,11 +271,28 @@ Scenario: User logs in with valid credentials
 
 Configure in **Admin Panel → Functions → Requirements Agent Filter → Valves**:
 
+**v1 Modes:**
 | Mode | Behavior | Best For |
 |------|----------|----------|
 | `assistant` | Helpful, waits for explicit requests | General use, mixed conversations |
 | `analyst` | Proactive, auto-detects requirements | Dedicated requirements sessions |
 | `silent` | Only responds when directly asked | Background mode, minimal interference |
+
+**v2 Modes** (enhanced auto-detection):
+| Mode | Behavior | Best For |
+|------|----------|----------|
+| `assistant` | Helpful, collaborative, supportive | General use, guided conversations |
+| `analyst` | Proactive, detail-oriented, thorough | Active requirements extraction |
+| `architect` | Strategic, big-picture, systematic | Enterprise planning sessions |
+
+**v2 Additional Settings:**
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enable_auto_extraction` | `true` | Auto-detect requirements from conversation |
+| `enable_quality_check` | `true` | Check SMART/INVEST quality before storing |
+| `enable_conflict_check` | `true` | Check for conflicts with existing requirements |
+| `require_confirmation` | `true` | Ask user to confirm before storing |
+| `min_quality_threshold` | `0.5` | Minimum quality score to accept (0-1) |
 
 ### Toolkit Settings
 
@@ -438,23 +476,34 @@ See **[REQUIREMENTS_EXAMPLES.md](REQUIREMENTS_EXAMPLES.md)** for:
 - [x] Semantic search support
 - [x] Duplicate detection
 
-### Phase 3: Advanced Analysis (Planned)
-- [ ] Automated conflict detection algorithm
-- [ ] Requirement dependency graph visualization
-- [ ] Impact analysis (what breaks if we change X?)
-- [ ] Coverage reports (requirements vs. tests)
+### Phase 3A: Hierarchy & Conflicts ✅ (v2)
+- [x] 4-level hierarchy (Epic → Feature → Story → Task)
+- [x] Automated conflict detection (semantic, logical, constraint)
+- [x] Rollup metrics (effort, completion %)
+- [x] Hierarchy visualization (tree, matrix)
+- [x] Circular dependency detection
+- [x] Files: `requirements_toolkit_v2.py`, `requirements_agent_filter_v2.py`
 
-### Phase 4: Integrations (Planned)
+### Phase 3B: Quality & Workflows ✅ (v2)
+- [x] SMART scoring (Specific, Measurable, Achievable, Relevant, Time-bound)
+- [x] INVEST scoring for user stories
+- [x] Completeness validation
+- [x] Stakeholder management
+- [x] Multi-stage approval workflows
+- [x] Quality reporting and suggestions
+
+### Phase 4: Advanced Features (Planned)
+- [ ] MoSCoW, WSJF prioritization (partial - API ready)
+- [ ] Release planning and roadmaps (partial - API ready)
 - [ ] Export to JIRA, Linear, GitHub Issues
 - [ ] Import from existing tools
 - [ ] Traceability matrix generator
-- [ ] Real-time collaboration features
 
-### Phase 5: AI Enhancements (Planned)
-- [ ] Auto-generate Gherkin from natural language
-- [ ] Suggest missing acceptance criteria
-- [ ] Detect implicit requirements
-- [ ] Requirement quality scoring
+### Phase 5: Enterprise Integration (Planned)
+- [ ] Requirements ↔ Tests ↔ Code traceability
+- [ ] External tool integrations
+- [ ] Advanced analytics and forecasting
+- [ ] AI-powered Gherkin generation
 
 ---
 
